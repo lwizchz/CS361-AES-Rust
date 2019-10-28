@@ -657,6 +657,15 @@ pub fn decrypt(keysize: &Keysize, input: &StateArray, schedule: &KeySchedule) ->
         output.total_bytes -= BLOCK_SIZE;
     } else {
         output.total_bytes -= padded_bytes as usize;
+
+        let rem = output.total_bytes % BLOCK_SIZE;
+        for c in 0..NUM_COL {
+            for r in 0..4 {
+                if r + 4*c >= rem {
+                    output.states[arrays_needed - 1][r][c] = 0;
+                }
+            }
+        }
     }
 
     Ok(output)

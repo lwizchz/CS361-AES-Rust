@@ -35,3 +35,93 @@ fn test0() -> Result<(), aes::Error> {
         Err(e) => Err(e),
     }
 }
+
+#[test]
+fn test1() -> Result<(), aes::Error> {
+    let args = aes::Opt {
+        keysize: aes::Keysize::B128,
+        mode: aes::Mode::Encrypt,
+        verbose: false,
+
+        keyfile: "tests/key1".to_string(),
+        inputfile: "tests/plaintext1".to_string(),
+        outputfile: "tests/decrypted1".to_string(),
+    };
+
+    match verify_crypto(args, "tests/ciphertext1".to_string()) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+#[test]
+fn test2() -> Result<(), aes::Error> {
+    let args = aes::Opt {
+        keysize: aes::Keysize::B256,
+        mode: aes::Mode::Encrypt,
+        verbose: false,
+
+        keyfile: "tests/key2".to_string(),
+        inputfile: "tests/plaintext2".to_string(),
+        outputfile: "tests/decrypted2".to_string(),
+    };
+
+    match verify_crypto(args, "tests/ciphertext2".to_string()) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+#[test]
+fn test3() -> Result<(), aes::Error> {
+    let args = aes::Opt {
+        keysize: aes::Keysize::B256,
+        mode: aes::Mode::Encrypt,
+        verbose: false,
+
+        keyfile: "tests/key3".to_string(),
+        inputfile: "tests/plaintext3".to_string(),
+        outputfile: "tests/decrypted3".to_string(),
+    };
+
+    match verify_crypto(args, "tests/ciphertext3".to_string()) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+#[test]
+fn test4() -> Result<(), aes::Error> {
+    let args = aes::Opt {
+        keysize: aes::Keysize::B256,
+        mode: aes::Mode::Encrypt,
+        verbose: false,
+
+        keyfile: "tests/key4".to_string(),
+        inputfile: "tests/plaintext4".to_string(),
+        outputfile: "tests/decrypted4".to_string(),
+    };
+
+    match verify_crypto(args, "tests/ciphertext4".to_string()) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+#[test]
+fn test5() -> Result<(), aes::Error> {
+    let args = aes::Opt {
+        keysize: aes::Keysize::B256,
+        mode: aes::Mode::Encrypt,
+        verbose: false,
+
+        keyfile: "tests/key5".to_string(),
+        inputfile: "tests/plaintext5".to_string(),
+        outputfile: "tests/decrypted5".to_string(),
+    };
+
+    match verify_crypto(args, "tests/ciphertext5".to_string()) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
