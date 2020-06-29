@@ -1,12 +1,11 @@
-extern crate structopt;
-
 use std::fmt;
-
-use structopt::StructOpt;
 use std::str::FromStr;
 
 use std::fs::File;
 use std::io::prelude::*;
+
+use thiserror::Error;
+use structopt::StructOpt;
 
 const NUM_COL: usize = 4; // Nb
 const NUM_WORDS_128: usize = 4; // Nk for 128bit
@@ -16,57 +15,52 @@ const NUM_ROUNDS_256: usize = 14; // Nr for 256bit
 
 const BLOCK_SIZE: usize = 16;
 
-#[derive(Debug)]
-pub enum Error {
+#[derive(Error, Debug)]
+pub enum AESError {
+    #[error("Parse failed")]
     Parse(String),
-    IO(String),
+
+    #[error(transparent)]
+    IO(#[from] std::io::Error),
+
+    #[error("KeyGen failed")]
     KeyGen(String),
-//    Encrypt(String),
-//    Decrypt(String),
-}
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(self, f)
-    }
-}
-impl std::convert::From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Error {
-        Error::IO(format!("{:?}", err))
-    }
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum Keysize {
     B128,
     B256,
 }
 impl FromStr for Keysize {
-    type Err = Error;
+    type Err = AESError;
     fn from_str(keysize: &str) -> Result<Self, Self::Err> {
         match keysize {
             "128" => Ok(Keysize::B128),
             "256" => Ok(Keysize::B256),
-            _ => Err(Error::Parse(format!("Couldn't parse keysize: {}", keysize)))
+            _ => Err(AESError::Parse(format!("Couldn't parse keysize: {}", keysize)))
         }
     }
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum Mode {
     Encrypt,
     Decrypt,
 }
 impl FromStr for Mode {
-    type Err = Error;
+    type Err = AESError;
     fn from_str(mode: &str) -> Result<Self, Self::Err> {
         match mode {
             "encrypt" => Ok(Mode::Encrypt),
             "decrypt" => Ok(Mode::Decrypt),
-            _ => Err(Error::Parse(format!("Couldn't parse mode: {}", mode)))
+            _ => Err(AESError::Parse(format!("Couldn't parse mode: {}", mode)))
         }
     }
 }
 
-#[derive(StructOpt)]
-#[structopt(name = "yoink", about = "A cool new yoinker")]
+#[derive(StructOpt, Debug)]
+#[structopt(name = "aes", about = "AES CBC crypto")]
 pub struct Opt {
     #[structopt(short = "s", long, default_value = "128")]
     pub keysize: Keysize,
@@ -167,7 +161,7 @@ impl StateMethods for State {
 }
 
 impl StateArray {
-    pub fn from_file(filename: &str) -> Result<Self, Error> {
+    pub fn from_file(filename: &str) -> Result<Self, AESError> {
         let fh = File::open(filename)?;
         let total_bytes = fh.metadata()?.len() as usize;
         let states_needed: usize = (total_bytes as f32 / BLOCK_SIZE as f32).ceil() as usize;
@@ -188,7 +182,9 @@ impl StateArray {
                         None => {
                             failed_reads += 1;
                             if failed_reads > BLOCK_SIZE {
-                                return Err(Error::IO(format!("Failed to read file: {}", filename)));
+                                return Err(AESError::IO(
+                                    std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to read file: {}", filename))
+                                ));
                             }
                         }
                     }
@@ -214,7 +210,7 @@ impl StateArray {
         }
     }
 
-    pub fn write(&self, filename: &str) -> Result<usize, Error> {
+    pub fn write(&self, filename: &str) -> Result<usize, AESError> {
         let mut fh = File::create(filename)?;
         let mut bytes_written = 0;
 
@@ -241,7 +237,7 @@ impl fmt::Display for StateArray {
 }
 
 impl KeySchedule {
-    pub fn generate(keyfile: &str, keysize: &Keysize) -> Result<Self, Error> {
+    pub fn generate(keyfile: &str, keysize: Keysize) -> Result<Self, AESError> {
         let raw_key: Key = Self::read_key(keyfile, keysize)?;
 
         Self::key_expansion(raw_key, keysize)
@@ -263,7 +259,7 @@ impl KeySchedule {
         }
     }
 
-    fn read_key(filename: &str, keysize: &Keysize) -> Result<Key, Error> {
+    fn read_key(filename: &str, keysize: Keysize) -> Result<Key, AESError> {
         let fh = File::open(filename)?;
         let mut bytes = fh.bytes();
 
@@ -282,7 +278,7 @@ impl KeySchedule {
                         word[c] = b?;
                     },
                     None => {
-                        return Err(Error::KeyGen(format!("Failed to read keyfile: {}", filename)));
+                        return Err(AESError::KeyGen(format!("Failed to read keyfile: {}", filename)));
                     },
                 }
             }
@@ -292,7 +288,7 @@ impl KeySchedule {
         Ok(key)
     }
 
-    fn key_expansion(raw_key: Key, keysize: &Keysize) -> Result<Self, Error> {
+    fn key_expansion(raw_key: Key, keysize: Keysize) -> Result<Self, AESError> {
         let num_words = match keysize {
             Keysize::B128 => NUM_WORDS_128,
             Keysize::B256 => NUM_WORDS_256,
@@ -326,9 +322,9 @@ impl KeySchedule {
             schedule: schedule
         })
     }
-    fn rcon(i: usize) -> Result<Word, Error> {
+    fn rcon(i: usize) -> Result<Word, AESError> {
         if i < 1 || i > 10 {
-            return Err(Error::KeyGen(format!("Invalid word section: {}", i)))
+            return Err(AESError::KeyGen(format!("Invalid word section: {}", i)))
         }
 
         Ok([
@@ -371,7 +367,7 @@ fn aes_mult(a: u8, b: u8) -> u8 {
     for i in 0..8 {
         // Conditionally add the multiplication by 0x02<<i
         if b & (0x1<<i) != 0x0 {
-            r = aes_add(r, xtime(a.clone(), i));
+            r = aes_add(r, xtime(a, i));
         }
     }
 
@@ -580,35 +576,33 @@ fn inv_mix_columns(state: &mut State) {
     }
 }
 
-pub fn encrypt(keysize: &Keysize, input: &StateArray, schedule: &KeySchedule) -> Result<StateArray, Error> {
-    let mut output: StateArray = input.clone();
-
+pub fn encrypt_inplace(keysize: Keysize, mut data: StateArray, schedule: &KeySchedule) -> Result<StateArray, AESError> {
     // Add padding
-    let rem = input.total_bytes % BLOCK_SIZE;
-    let arrays_needed = (input.total_bytes as f32 / BLOCK_SIZE as f32).ceil() as usize;
+    let rem = data.total_bytes % BLOCK_SIZE;
+    let arrays_needed = (data.total_bytes as f32 / BLOCK_SIZE as f32).ceil() as usize;
     if rem == 0 {
         // Add empty block
         let mut empty_state: State = [[0; NUM_COL]; 4];
         empty_state[3][3] = BLOCK_SIZE as u8;
-        output.states.push(empty_state);
+        data.states.push(empty_state);
     } else {
         for c in 0..NUM_COL {
             for r in 0..4 {
                 if r + 4*c >= rem {
-                    output.states[arrays_needed - 1][r][c] = 0;
+                    data.states[arrays_needed - 1][r][c] = 0;
                 }
             }
         }
-        output.states[arrays_needed - 1][3][3] = (BLOCK_SIZE - rem) as u8;
+        data.states[arrays_needed - 1][3][3] = (BLOCK_SIZE - rem) as u8;
     }
-    output.total_bytes += BLOCK_SIZE - rem;
+    data.total_bytes += BLOCK_SIZE - rem;
 
     // Run cipher
     let n_r: usize = match keysize {
         Keysize::B128 => NUM_ROUNDS_128,
         Keysize::B256 => NUM_ROUNDS_256,
     };
-    for mut state in &mut output.states {
+    for mut state in &mut data.states {
         add_round_key(&mut state, &schedule.schedule[0..NUM_COL]);
 
         for r in 1..n_r {
@@ -623,17 +617,18 @@ pub fn encrypt(keysize: &Keysize, input: &StateArray, schedule: &KeySchedule) ->
         add_round_key(&mut state, &schedule.schedule[(n_r * NUM_COL) .. ((n_r+1) * NUM_COL)]);
     }
 
-    Ok(output)
+    Ok(data)
 }
-pub fn decrypt(keysize: &Keysize, input: &StateArray, schedule: &KeySchedule) -> Result<StateArray, Error> {
-    let mut output: StateArray = input.clone();
-
+pub fn encrypt(keysize: Keysize, input: &StateArray, schedule: &KeySchedule) -> Result<StateArray, AESError> {
+    encrypt_inplace(keysize, input.clone(), schedule)
+}
+pub fn decrypt_inplace(keysize: Keysize, mut data: StateArray, schedule: &KeySchedule) -> Result<StateArray, AESError> {
     // Run cipher
     let n_r: usize = match keysize {
         Keysize::B128 => NUM_ROUNDS_128,
         Keysize::B256 => NUM_ROUNDS_256,
     };
-    for mut state in &mut output.states {
+    for mut state in &mut data.states {
         add_round_key(&mut state, &schedule.schedule[(n_r * NUM_COL) .. ((n_r+1) * NUM_COL)]);
 
         for r in (1 .. n_r).rev() {
@@ -649,29 +644,32 @@ pub fn decrypt(keysize: &Keysize, input: &StateArray, schedule: &KeySchedule) ->
     }
 
     // Remove padding
-    let arrays_needed = (output.total_bytes as f32 / BLOCK_SIZE as f32).floor() as usize;
-    let padded_bytes = output.states[arrays_needed-1][3][3];
+    let arrays_needed = (data.total_bytes as f32 / BLOCK_SIZE as f32).floor() as usize;
+    let padded_bytes = data.states[arrays_needed-1][3][3];
     if padded_bytes as usize == BLOCK_SIZE {
         // Remove empty block
-        output.states.pop();
-        output.total_bytes -= BLOCK_SIZE;
+        data.states.pop();
+        data.total_bytes -= BLOCK_SIZE;
     } else {
-        output.total_bytes -= padded_bytes as usize;
+        data.total_bytes -= padded_bytes as usize;
 
-        let rem = output.total_bytes % BLOCK_SIZE;
+        let rem = data.total_bytes % BLOCK_SIZE;
         for c in 0..NUM_COL {
             for r in 0..4 {
                 if r + 4*c >= rem {
-                    output.states[arrays_needed - 1][r][c] = 0;
+                    data.states[arrays_needed - 1][r][c] = 0;
                 }
             }
         }
     }
 
-    Ok(output)
+    Ok(data)
+}
+pub fn decrypt(keysize: Keysize, input: &StateArray, schedule: &KeySchedule) -> Result<StateArray, AESError> {
+    decrypt_inplace(keysize, input.clone(), &schedule)
 }
 
-pub fn do_with_args(args: &Opt) -> Result<StateArray, Error> {
+pub fn do_with_args(args: &Opt) -> Result<StateArray, AESError> {
     let input = StateArray::from_file(&args.inputfile)?;
     if args.verbose {
         println!("Input:\n");
@@ -679,7 +677,7 @@ pub fn do_with_args(args: &Opt) -> Result<StateArray, Error> {
         println!("---\n");
     }
 
-    let schedule = KeySchedule::generate(&args.keyfile, &args.keysize)?;
+    let schedule = KeySchedule::generate(&args.keyfile, args.keysize)?;
     if args.verbose {
         println!("Keyschedule:\n");
         schedule.print();
@@ -688,10 +686,10 @@ pub fn do_with_args(args: &Opt) -> Result<StateArray, Error> {
 
     let output: StateArray = match args.mode {
         Mode::Encrypt => {
-            encrypt(&args.keysize, &input, &schedule)?
+            encrypt_inplace(args.keysize, input, &schedule)?
         },
         Mode::Decrypt => {
-            decrypt(&args.keysize, &input, &schedule)?
+            decrypt_inplace(args.keysize, input, &schedule)?
         },
     };
 

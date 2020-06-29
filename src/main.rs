@@ -1,11 +1,9 @@
-extern crate aes;
-
+use anyhow::{Context, Result};
 use structopt::StructOpt;
 
-fn main() -> Result<(), aes::Error> {
+fn main() -> Result<()> {
     let args = aes::Opt::from_args();
-    match aes::do_with_args(&args) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(e),
-    }
+    aes::do_with_args(&args)
+        .context(format!("failed with args: {:?}", args))?;
+    Ok(())
 }
